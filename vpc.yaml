@@ -1,0 +1,188 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# Provisiong the VPC (Network)
+# Defining a CidrBlock (IP Range) for the VPC
+# Enabling the DNS Hostnames of any EC2 instances & AWS Resources
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-VPC"
+
+# Provisioning two separate public subnets within multiple AZ's
+# Setting each Cidr Block to a specific subnet
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: us-east-1a
+      CidrBlock: "10.0.0.0/24"
+      MapPublicIpOnLaunch: true # auto-assign public IPs to EC2 servers
+      VpcId: !Ref VPC
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnetA"
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: us-east-1b
+      CidrBlock: "10.0.1.0/24"
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnetB"
+
+# Provisioning two separate private subnets within multiple AZ's
+# Setting each Cidr Block to a specific subnet
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: us-east-1a
+      CidrBlock: "10.0.2.0/24"
+      MapPublicIpOnLaunch: false # will not auto-assign public IPs to EC2 servers
+      VpcId: !Ref VPC
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnetA"
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: us-east-1b
+      CidrBlock: "10.0.3.0/24"
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref VPC
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnetB"
+
+# Provisioning an Internet Gateway (Internet access)
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-IGW"
+
+# Translates Private IPs into Public IPs & handoff traffic to IGW
+  NGWA:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId: !GetAtt EIPA.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-NGWA"
+
+# Reserved Public IP
+  EIPA:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-EPIA"
+
+  NGWB:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId: !GetAtt EIPB.AllocationId
+      SubnetId: !Ref PublicSubnetB
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-NGWB"
+
+  EIPB:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-EPIB"
+
+# Attaches the IGW to the VPC
+  VPCGWYAtt:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref VPC
+
+# Create a Public Route Table to send all default traffic to the IGW
+  PubRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref VPC
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-public"
+
+# Create Private Route Tables to send all default traffic to AZ-specific NGWs
+  PrivRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref VPC
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-privateA"
+
+  PrivRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref VPC
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-privateB"
+
+# "Definition" of target default traffic to IGW
+  PubRoute:
+    Type: AWS::EC2::Route
+    Properties: 
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref PubRouteTable
+
+# "Definition" of targets default traffic to specific NGWs (AZ-specific)
+  PrivRouteA:
+    Type: AWS::EC2::Route
+    Properties: 
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref PrivRouteTableA
+
+  PrivRouteB:
+    Type: AWS::EC2::Route
+    Properties: 
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref PrivRouteTableB
+
+# Associating a Routes with a RouteTables
+  PubRouteTableAssociationA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PubRouteTable
+      SubnetId: !Ref PublicSubnetA
+
+  PubRouteTableAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PubRouteTable
+      SubnetId: !Ref PublicSubnetB
+
+  PrivRouteTableAssociationA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PrivRouteTableA
+      SubnetId: !Ref PrivateSubnetA
+
+  PrivRouteTableAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PrivRouteTableB
+      SubnetId: !Ref PrivateSubnetB
