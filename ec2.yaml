@@ -6,8 +6,13 @@ Parameters:
     Description: "Select specific VPC ID you wish to deploy the EC2 instance to."
     Type: AWS::EC2::VPC::Id
   AmiId:
-    Description: "Please select the Image you wish to deploy to this EC2 instance."
+    Description: "Please type in the AMI ID you wish to use."
     Type: AWS::EC2::Image::Id
+    Default: "ami-0ff8a91507f77f867"
+    AllowedValues:
+      - "ami-0ff8a91507f77f867"
+      - "ami-0130c3a072f3832ff"
+      - "ami-0023040df18933030"
   InstanceType:
     Description: "Please select the Instance Type."
     Type: String
