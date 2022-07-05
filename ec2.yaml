@@ -5,14 +5,20 @@ Parameters:
   VpcId:
     Description: "Select specific VPC ID you wish to deploy the EC2 instance to."
     Type: AWS::EC2::VPC::Id
+  SourceCidr:
+    Description: "Source Cidr range for Source access."
+    Type: String
+    Default: 72.94.166.0/24
+  SubnetId:
+    Description: "Defined subnet for EC2 instance."
+    Type: AWS::EC2::Subnet::Id
   AmiId:
-    Description: "Please type in the AMI ID you wish to use."
-    Type: AWS::EC2::Image::Id
-    Default: "ami-0ff8a91507f77f867"
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Description: Provide the SSM Parameter path to a valid AMI ID
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
     AllowedValues:
-      - "ami-0ff8a91507f77f867"
-      - "ami-0130c3a072f3832ff"
-      - "ami-0023040df18933030"
+      - /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-arm64-gp2
+      - /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
   InstanceType:
     Description: "Please select the Instance Type."
     Type: String
@@ -22,13 +28,6 @@ Parameters:
       - t2.micro
       - t2.small
       - t2.medium
-  AZLoc:
-    Description: "Please select an a specific AZ to deploy EC2 on."
-    Type: String
-    AllowedValues:
-      - us-east-1a
-      - us-east-1b
-      - us-east-1c
 
 # Provisioning EC2 instances & settings
 Resources:
@@ -36,9 +35,11 @@ Resources:
   MyEc2Instance:
     Type: AWS::EC2::Instance
     Properties:
-      AvailabilityZone: !Ref AZLoc
       ImageId: !Ref AmiId
       InstanceType: !Ref InstanceType
+      SecurityGroupIds:
+        - !Ref InstanceSecurityGroup
+      SubnetId: !Ref SubnetId
 
   # Creating SecurityGroup for SSH
   InstanceSecurityGroup:
@@ -49,4 +50,5 @@ Resources:
       - IpProtocol: tcp
         FromPort: 22
         ToPort: 22
+        CidrIp: !Ref SourceCidr
       VpcId: !Ref VpcId
