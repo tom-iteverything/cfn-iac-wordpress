@@ -29,8 +29,35 @@ Parameters:
       - t2.small
       - t2.medium
 
-# Provisioning EC2 instances & settings
+# Provisioning EC2 instances, IAM Roles & settings
 Resources:
+  # Create IAM Role
+  IamRole:
+  Type: AWS::IAM::Role
+    Properties:
+      Description: "Grant EC2 access from Systems Manager & CloudWatch,"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+            Service:
+              - !Sub "ec2.${AWS::URLSuffix}"
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/CloudWatchAgentServerPolicy'
+
+  # Creating IAM Instance Profile
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      InstanceProfileName: ec2-demo-profile
+      Roles: 
+        - !Ref IAmRole
+
+
   # Building the EC2 selections
   MyEc2Instance:
     Type: AWS::EC2::Instance
