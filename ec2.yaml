@@ -33,7 +33,7 @@ Parameters:
 Resources:
   # Create IAM Role
   IamRole:
-  Type: AWS::IAM::Role
+    Type: AWS::IAM::Role
     Properties:
       Description: "Grant EC2 access from Systems Manager & CloudWatch,"
       AssumeRolePolicyDocument:
@@ -55,8 +55,7 @@ Resources:
     Properties: 
       InstanceProfileName: ec2-demo-profile
       Roles: 
-        - !Ref IAmRole
-
+        - !Ref IamRole
 
   # Building the EC2 selections
   MyEc2Instance:
