@@ -46,14 +46,14 @@ Resources:
             Action:
               - sts:AssumeRole
       ManagedPolicyArns:
-        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
-        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/CloudWatchAgentServerPolicy'
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/CloudWatchAgentServerPolicy"
 
   # Creating IAM Instance Profile
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
-    Properties: 
-      Roles: 
+    Properties:
+      Roles:
         - !Ref IamRole
 
   # Building the EC2 selections
@@ -72,8 +72,8 @@ Resources:
     Properties:
       GroupDescription: "Enable SSH access via port 22"
       SecurityGroupIngress:
-      - IpProtocol: tcp
-        FromPort: 22
-        ToPort: 22
-        CidrIp: !Ref SourceCidr
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SourceCidr
       VpcId: !Ref VpcId
