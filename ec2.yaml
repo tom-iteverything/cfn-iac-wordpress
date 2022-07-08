@@ -35,14 +35,14 @@ Resources:
   IamRole:
     Type: AWS::IAM::Role
     Properties:
-      Description: "Grant EC2 access from Systems Manager & CloudWatch,"
+      Description: "Grant EC2 access from Systems Manager & CloudWatch."
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
-            Service:
-              - !Sub "ec2.${AWS::URLSuffix}"
+              Service:
+                - !Sub "ec2.${AWS::URLSuffix}"
             Action:
               - sts:AssumeRole
       ManagedPolicyArns:
@@ -53,7 +53,6 @@ Resources:
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties: 
-      InstanceProfileName: ec2-demo-profile
       Roles: 
         - !Ref IamRole
 
