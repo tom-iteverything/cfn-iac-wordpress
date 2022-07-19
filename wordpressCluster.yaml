@@ -9,10 +9,10 @@ Parameters:
     Description: "Source Cidr range for Source access."
     Type: String
     Default: 72.94.166.0/24
-  SubnetId:
-    Description: "Defined subnet for EC2 instance."
-    Type: AWS::EC2::Subnet::Id
-  RDSSubnets:
+  PublicSubnets:
+    Description: "Defined subnet for RDS Cluster."
+    Type: List<AWS::EC2::Subnet::Id>
+  PrivateSubnets:
     Description: "Defined subnet for RDS Cluster."
     Type: List<AWS::EC2::Subnet::Id>
   AmiId:
@@ -31,6 +31,24 @@ Parameters:
       - t2.micro
       - t2.small
       - t2.medium
+  AsgDesired:
+    Type: Number
+    Description: "Specify the number of instances to launch by default"
+    MinValue: 1
+    MaxValue: 10
+    Default: 3
+  AsgMin:
+    Type: Number
+    Description: "Specify the minimum number of instances to launch"
+    MinValue: 1
+    MaxValue: 10
+    Default: 1
+  AsgMax:
+    Type: Number
+    Description: "Specify the maximum number of instances to launch"
+    MinValue: 1
+    MaxValue: 10
+    Default: 6
 
 # Provisioning EC2 instances, IAM Roles & settings
 Resources:
@@ -61,23 +79,119 @@ Resources:
 
   DBClusterParameterGroupName:
     Type: AWS::RDS::DBClusterParameterGroup
-    Properties: 
+    Properties:
       Description: !Sub "${AWS::StackName} DB Cluster ParameterGroup"
       Family: aurora-mysql5.7
-      Parameters: 
+      Parameters:
         character_set_database: utf32
-      Tags: 
+      Tags:
         - Key: Name
-          Value: !Sub '${AWS::StackName}-rds-wordpress'
+          Value: !Sub "${AWS::StackName}-rds-wordpress"
 
   DBSubnetGroupName:
     Type: AWS::RDS::DBSubnetGroup
-    Properties: 
+    Properties:
       DBSubnetGroupDescription: !Sub "${AWS::StackName} DB Subnet Group"
-      SubnetIds: !Ref RDSSubnets
-      Tags: 
+      SubnetIds: !Ref PrivateSubnets
+      Tags:
         - Key: Name
-          Value: !Sub '${AWS::StackName}-rds-wordpress'
+          Value: !Sub "${AWS::StackName}-rds-wordpress"
+
+  RDSClusterKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: "Key to encrpyt data stored on RDS Cluster"
+      EnableKeyRotation: true
+      MultiRegion: false
+      PendingWindowInDays: 7
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: Enable IAM Policies
+            Effect: "Allow"
+            Action:
+              - "kms:Create*"
+              - "kms:Describe*"
+              - "kms:Enable*"
+              - "kms:List*"
+              - "kms:Put*"
+              - "kms:Update*"
+              - "kms:Revoke*"
+              - "kms:Disable*"
+              - "kms:Get*"
+              - "kms:Delete*"
+              - "kms:TagResource"
+              - "kms:UntagResource"
+              - "kms:ScheduleKeyDeletion"
+              - "kms:CancelKeyDeletion"
+            Resource: "*"
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+          - Sid: Enable RDS Access
+            Effect: "Allow"
+            Action:
+              - "kms:Encrypt*"
+              - "kms:Decrypt*"
+              - "kms:ReEncrypt*"
+              - "kms:GenerateDataKey*"
+              - "kms:ListGrants"
+              - "kms:CreateGrant"
+              - "kms:Describe*"
+            Resource: "*"
+            Principal:
+              AWS: "*"
+            Condition:
+              StringEquals:
+                kms:ViaService:
+                  - !Sub "ec2.${AWS::Region}.${AWS::URLSuffix}"
+                  - !Sub "rds.${AWS::Region}.${AWS::URLSuffix}"
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  SecretsManagerKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: "This key will encrypt data stored in Secrets Manager"
+      EnableKeyRotation: true
+      MultiRegion: false
+      PendingWindowInDays: 7
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: Enable IAM Policies
+            Effect: "Allow"
+            Action:
+              - "kms:Create*"
+              - "kms:Describe*"
+              - "kms:Enable*"
+              - "kms:List*"
+              - "kms:Put*"
+              - "kms:Update*"
+              - "kms:Revoke*"
+              - "kms:Disable*"
+              - "kms:Get*"
+              - "kms:Delete*"
+              - "kms:TagResource"
+              - "kms:UntagResource"
+              - "kms:ScheduleKeyDeletion"
+              - "kms:CancelKeyDeletion"
+            Resource: "*"
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+          - Sid: Enable Secrets Manager
+            Effect: "Allow"
+            Action:
+              - "kms:Encrypt*"
+              - "kms:Decrypt*"
+              - "kms:ReEncrypt*"
+              - "kms:GenerateDataKey*"
+              - "kms:Describe*"
+            Resource: "*"
+            Principal:
+              AWS: "*"
+            Condition:
+              StringEquals:
+                kms:ViaService: !Sub "secretsmanager.${AWS::Region}.${AWS::URLSuffix}"
+                kms:CallerAccount: !Ref AWS::AccountId
 
   RDSSecret:
     Type: AWS::SecretsManager::Secret
@@ -91,7 +205,7 @@ Resources:
         PasswordLength: 64
         RequireEachIncludedType: true
         SecretStringTemplate: '{"username": "admin"}'
-      # KmsKeyId: !Ref SecretsManagerKmsKey
+      KmsKeyId: !Ref SecretsManagerKmsKey
 
   RDSSecretAttachment:
     Type: AWS::SecretsManager::SecretTargetAttachment
@@ -114,8 +228,8 @@ Resources:
       Engine: aurora-mysql
       EngineMode: serverless
       EngineVersion: 5.7.mysql_aurora.2.10.2
-      MasterUsername: !Sub '{{resolve:secretsmanager:${RDSSecret}:SecretString:username}}'
-      MasterUserPassword: !Sub '{{resolve:secretsmanager:${RDSSecret}:SecretString:password}}'
+      MasterUsername: !Sub "{{resolve:secretsmanager:${RDSSecret}:SecretString:username}}"
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${RDSSecret}:SecretString:password}}"
       StorageEncrypted: true
       VpcSecurityGroupIds:
         - !Ref RdsSecurityGroup
@@ -140,16 +254,24 @@ Resources:
         - Key: Name
           Value: !Sub "${AWS::StackName}-Wordpress-RDS"
 
-  # Building the EC2 selections
-  MyEc2Instance:
-    Type: AWS::EC2::Instance
+  ELBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
-      ImageId: !Ref AmiId
-      InstanceType: !Ref InstanceType
-      IamInstanceProfile: !Ref InstanceProfile
-      SecurityGroupIds:
-        - !Ref InstanceSecurityGroup
-      SubnetId: !Ref SubnetId
+      GroupDescription: !Sub "This group will allow HTTP access to the Elastic Load Balancer from ${SourceCidr}"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: Grants inbound HTTP access from external sources
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref SourceCidr
+      SecurityGroupEgress:
+        - Description: Grants outbound to all
+          IpProtocol: -1
+          CidrIp: "0.0.0.0/0"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-Wordpress-ELB"
 
   # Creating SecurityGroup for SSH
   InstanceSecurityGroup:
@@ -161,4 +283,105 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: !Ref SourceCidr
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ELBSecurityGroup
       VpcId: !Ref VpcId
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Name: !Ref InstanceProfile
+        ImageId: !Ref AmiId
+        InstanceType: !Ref InstanceType
+        MetadataOptions:
+          HttpTokens: required
+        SecurityGroupIds:
+          - !Ref InstanceSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            yum upgrade -y
+            yum install -y httpd
+            echo "Hello World from $(hostname -f)" > /var/www/html/index.html
+            service httpd start
+            chkconfig httpd on
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      HealthCheckGracePeriod: 180
+      HealthCheckType: EC2 # ELB
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      DesiredCapacity: !Ref AsgDesired
+      MinSize: !Ref AsgMin
+      MaxSize: !Ref AsgMax
+      TargetGroupARNs:
+        - !Ref TargetGroup
+      VPCZoneIdentifier: !Ref PrivateSubnets
+      Tags:
+        - Key: "Name"
+          Value: !Sub "${AWS::StackName}-LinuxASG-Wordpress"
+          PropagateAtLaunch: true
+
+  AutoScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        DisableScaleIn: false
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 80
+
+  ElasticLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      LoadBalancerAttributes:
+        - Key: routing.http.drop_invalid_header_fields.enabled
+          Value: true
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref ELBSecurityGroup
+      Subnets: !Ref PublicSubnets
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 80
+      TargetType: instance
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckPort: "80"
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: 200-399
+      TargetGroupAttributes:
+        - Key: stickiness.enabled
+          Value: true
+
+  ELBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ElasticLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  LinuxSiteUrl:
+    Value: !Sub "http://${ElasticLoadBalancer.DNSName}/"
+    Description: Public facing url of our sample website
