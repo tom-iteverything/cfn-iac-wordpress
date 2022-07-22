@@ -234,6 +234,22 @@ Resources:
       VpcSecurityGroupIds:
         - !Ref RdsSecurityGroup
 
+  # Create EFS Security Group
+  EfsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allows inbound traffic on TCP:2049 (NFS) from our EC2 servers
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: Grants inbound NFS access from our wordpress servers
+          IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
+      Tags:
+        - Key: 'Name'
+          Value: !Sub '${AWS::StackName}-Wordpress-EFS'
+
   # Create RDS Security Group
   RdsSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -289,6 +305,7 @@ Resources:
           SourceSecurityGroupId: !Ref ELBSecurityGroup
       VpcId: !Ref VpcId
 
+  # Launch Template in order to run bash code for Wordpress
   LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -305,11 +322,21 @@ Resources:
           Fn::Base64: !Sub |
             #!/bin/bash
             yum upgrade -y
-            yum install -y httpd
+            amazon-linux-extras install -y epel
+            yum install -y amazon-efs-utils
+            echo "${EfsFileSystem}:/ /var/www/html efs _netdev,tls,iam 0 0" >> /etc/fstab
+            mount -a
+            yum install -y httpd mysql jq
+            amazon-linux-extras install -y php8.0
+            amazon-linux-extras install -y httpd_modules
+            yum clean metadata
+            yum install -y php-gd.x86_64
+            yum install -y php-mbstring.x86_64
             echo "Hello World from $(hostname -f)" > /var/www/html/index.html
             service httpd start
             chkconfig httpd on
 
+  # Define/Create autoscaling group for EC2 instances (cluster)
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -329,6 +356,7 @@ Resources:
           Value: !Sub "${AWS::StackName}-LinuxASG-Wordpress"
           PropagateAtLaunch: true
 
+  # Define Autoscaling Policy for EC2 instances
   AutoScalingPolicy:
     Type: AWS::AutoScaling::ScalingPolicy
     Properties:
@@ -340,6 +368,7 @@ Resources:
           PredefinedMetricType: ASGAverageCPUUtilization
         TargetValue: 80
 
+  # Define ELB (ALB)
   ElasticLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -351,6 +380,7 @@ Resources:
         - !Ref ELBSecurityGroup
       Subnets: !Ref PublicSubnets
 
+  # Define TargetGroup for ELB
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -371,6 +401,7 @@ Resources:
         - Key: stickiness.enabled
           Value: true
 
+  # Define ELB Listener
   ELBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -381,6 +412,59 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref TargetGroup
 
+  # Define EFS Policy
+  EFSPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref IamRole
+      PolicyName: GrantEfsAccess
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - elasticfilesystem:DescribeMountTargets
+              - elasticfilesystem:ClientRootAccess
+              - elasticfilesystem:ClientMount
+              - elasticfilesystem:ClientWrite
+            Resource: !GetAtt EfsFileSystem.Arn
+
+  # Define EFS
+  EfsFileSystem:
+    Type: AWS::EFS::FileSystem
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Properties:
+      BackupPolicy:
+        Status: ENABLED
+      Encrypted: true
+      PerformanceMode: generalPurpose
+
+  # EFS Mount (A)
+  EfsMountPointA:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      SecurityGroups: [!Ref EfsSecurityGroup]
+      SubnetId: !Select [0, !Ref PrivateSubnets]
+
+  # EFS Mount (B)
+  EfsMountPointB:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      SecurityGroups: [!Ref EfsSecurityGroup]
+      SubnetId: !Select [1, !Ref PrivateSubnets]
+
+  # EFS Mount (C)
+  EfsMountPointC:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      SecurityGroups: [!Ref EfsSecurityGroup]
+      SubnetId: !Select [2, !Ref PrivateSubnets]
+
+# Cloudformation output code
 Outputs:
   LinuxSiteUrl:
     Value: !Sub "http://${ElasticLoadBalancer.DNSName}/"
