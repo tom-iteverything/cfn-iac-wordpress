@@ -202,7 +202,7 @@ Resources:
       GenerateSecretString:
         ExcludePunctuation: true
         GenerateStringKey: password
-        PasswordLength: 64
+        PasswordLength: 32 # Max password length 41 (for this setup)
         RequireEachIncludedType: true
         SecretStringTemplate: '{"username": "admin"}'
       KmsKeyId: !Ref SecretsManagerKmsKey
