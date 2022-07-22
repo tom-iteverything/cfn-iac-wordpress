@@ -247,8 +247,8 @@ Resources:
           ToPort: 2049
           SourceSecurityGroupId: !Ref EC2SecurityGroup
       Tags:
-        - Key: 'Name'
-          Value: !Sub '${AWS::StackName}-Wordpress-EFS'
+        - Key: "Name"
+          Value: !Sub "${AWS::StackName}-Wordpress-EFS"
 
   # Create RDS Security Group
   RdsSecurityGroup:
