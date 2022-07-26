@@ -325,6 +325,7 @@ Resources:
             amazon-linux-extras install -y epel
             yum install -y amazon-efs-utils
             echo "${EfsFileSystem}:/ /var/www/html efs _netdev,tls,iam 0 0" >> /etc/fstab
+            mkdir -p /var/www/html
             mount -a
             yum install -y httpd mysql jq
             amazon-linux-extras install -y php8.0
